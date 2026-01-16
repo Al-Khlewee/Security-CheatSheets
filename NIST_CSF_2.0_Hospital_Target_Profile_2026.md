@@ -13,6 +13,30 @@
 
 This Target Profile defines the desired cybersecurity posture for a 500-bed acute care hospital operating critical healthcare systems including Electronic Medical Records (EMR), Laboratory and Radiology Information Systems (LIS/RIS), Building Management Systems (BMS), Hospital/Oncology Information Systems (HIS/OIS), and Internet of Medical Things (IoMT) devices. The profile addresses the unique risk landscape of clinical environments where cybersecurity failures directly impact patient safety and care continuity.
 
+> ⚠️ **CRITICAL DESIGN PRINCIPLE: AVAILABILITY FIRST**
+>
+> This Target Profile prioritizes **Availability** above Confidentiality and Integrity. In healthcare, system downtime correlates directly with patient mortality. Studies show a 20-35% increase in in-hospital mortality during ransomware-induced EHR outages. Every design decision in this profile must ask: *"How does this control maintain or restore clinical operations?"*
+
+### Alignment with NIST IR 8374 (Ransomware Risk Management)
+
+This Target Profile adapts the generic ransomware guidance from **NIST IR 8374** to the hospital environment. Key adaptations include:
+
+| **IR 8374 Recommendation** | **Hospital-Specific Adaptation** |
+|:---------------------------|:---------------------------------|
+| Identify critical assets | Tier assets by patient safety impact, not just business value |
+| Network segmentation | Clinical VLAN isolation preventing lateral movement from admin to surgical systems |
+| Backup integrity | Immutable, air-gapped backups with clinical data reconciliation procedures |
+| Incident response | Clinical downtime procedures enabling paper-based care continuity |
+| Recovery prioritization | Life-critical IoMT → EMR → Lab/Radiology → Pharmacy → Administrative |
+
+### Special Considerations Addressed
+
+This profile provides detailed guidance for three critical hospital-specific challenges:
+
+1. **🔧 Legacy Equipment Management** — Securing unpatchable IoMT devices (Windows XP MRIs, legacy infusion pumps) through compensating controls
+2. **🔒 Network Segmentation** — Preventing ransomware lateral movement from administrative areas (reception) to clinical areas (surgical wing)
+3. **📋 Clinical Continuity** — Paper-based downtime procedures ensuring physicians can safely treat patients during system restoration
+
 ### Scope of Critical Systems
 
 | **System Category** | **Representative Systems** | **PHI/Safety Impact** | **Risk Classification** |
@@ -162,6 +186,182 @@ Implement appropriate safeguards to ensure delivery of critical healthcare servi
 | **IoMT Vulnerability Management** | Medical device vulnerabilities are identified and mitigated | Coordination with device manufacturers for patches; compensating controls when patching not feasible; monitoring for medical device vulnerability disclosures (ICS-CERT, manufacturer alerts) | High | HIPAA §164.308(a)(1)(ii)(A); FDA Postmarket Guidance |
 | **IoMT Secure Lifecycle** | Medical devices are securely configured, maintained, and decommissioned | Secure default configuration; disable unnecessary services/ports; PHI removal before decommissioning; firmware integrity verification | High | HIPAA §164.310(d)(2)(i); FDA Premarket Guidance |
 
+### 3.7 Legacy Medical Equipment Protection (Unpatchable IoMT) — *Critical Focus Area*
+
+> **Challenge:** Hospitals operate thousands of medical devices running end-of-life operating systems (Windows XP, Windows 7, Windows Embedded) that cannot be patched due to FDA certification requirements, manufacturer limitations, or clinical validation constraints. These devices represent critical attack surfaces for ransomware lateral movement.
+
+#### Legacy Device Inventory Classification
+
+| **Device Category** | **Typical OS** | **Patch Status** | **Clinical Criticality** | **Compensating Control Priority** |
+|:--------------------|:---------------|:-----------------|:-------------------------|:---------------------------------|
+| **MRI/CT Scanners** | Windows XP/7 Embedded | Unpatchable (FDA certified) | High — Diagnostic imaging | Critical |
+| **Infusion Pumps** | Proprietary/Windows CE | Unpatchable (Manufacturer locked) | Critical — Medication delivery | Critical |
+| **Ventilators** | Proprietary RTOS | Unpatchable (Life-sustaining) | Critical — Life support | Critical |
+| **Patient Monitors** | Windows XP Embedded | Unpatchable (Legacy systems) | Critical — Vital signs | Critical |
+| **Ultrasound Systems** | Windows 7/10 | Delayed patching (Clinical validation) | High — Diagnostic imaging | High |
+| **Lab Analyzers** | Windows 7/Proprietary | Unpatchable (Manufacturer controlled) | High — Diagnostic results | High |
+| **PACS Workstations** | Windows 7/10 | Delayed patching | High — Image review | High |
+| **Medication Dispensing (Pyxis)** | Windows Embedded | Unpatchable (Vendor managed) | High — Medication safety | High |
+
+#### Compensating Controls Framework for Unpatchable Devices
+
+| **Control Layer** | **Implementation** | **Rationale** | **Verification Method** |
+|:------------------|:-------------------|:--------------|:------------------------|
+| **1. Network Micro-Segmentation** | Dedicated VLAN per device class with stateful firewall inspection; explicit allow-list of required communication paths | Prevents lateral movement; limits blast radius | Quarterly firewall rule review; penetration testing |
+| **2. Virtual Patching (IPS)** | Deploy network-based IPS signatures for known vulnerabilities affecting legacy OS (MS17-010/EternalBlue, BlueKeep, etc.) | Blocks exploitation attempts at network layer | Weekly signature updates; monthly detection validation |
+| **3. Application Whitelisting** | Where supported, deploy application control to allow only authorized binaries | Prevents ransomware execution even if delivered | Baseline validation; change detection alerting |
+| **4. USB/Removable Media Controls** | Disable or restrict USB ports; require encrypted, scanned media for software updates | Blocks common malware delivery vector | Physical port audits; endpoint policy verification |
+| **5. Network Access Control (NAC)** | 802.1X or MAC-based authentication; automatic quarantine for non-compliant devices | Prevents unauthorized devices; enforces segmentation | NAC policy testing; rogue device scanning |
+| **6. Traffic Inspection** | East-West traffic inspection between legacy device VLANs and other network segments | Detects lateral movement attempts; blocks C2 traffic | SIEM correlation; traffic anomaly detection |
+| **7. Endpoint Detection (Where Possible)** | Deploy lightweight EDR agents on devices that can support them (newer Windows Embedded) | Provides visibility into device behavior | EDR console monitoring; agent health checks |
+| **8. Network Behavior Analysis** | Baseline normal traffic patterns; alert on deviations (new connections, port scans, SMB enumeration) | Detects early ransomware reconnaissance | NBA platform tuning; monthly baseline review |
+| **9. Hardening** | Disable unnecessary services (SMBv1, RDP if unused), remove unused software, local firewall rules | Reduces attack surface on legacy systems | Configuration audits; hardening checklist validation |
+| **10. Offline Backup** | Maintain offline, tested backups of device configurations and clinical data | Enables recovery without paying ransom | Quarterly restoration testing |
+
+#### Legacy Device Communication Policy
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                    LEGACY IoMT NETWORK COMMUNICATION MATRIX                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ALLOWED TRAFFIC (Explicit Permit)                                           │
+│  ─────────────────────────────────                                           │
+│  • MRI/CT → PACS Server (DICOM: TCP 104, 11112)                              │
+│  • MRI/CT → RIS (HL7: TCP 2575)                                              │
+│  • Infusion Pumps → Pharmacy Server (Proprietary: TCP 443)                   │
+│  • Patient Monitors → Central Monitoring (Proprietary: TCP 8080)             │
+│  • All Devices → Syslog Server (UDP 514, TCP 514)                            │
+│  • All Devices → NTP Server (UDP 123)                                        │
+│  • All Devices → DNS Server (UDP/TCP 53) — Restricted to internal DNS        │
+│  • Vendor Remote Access → Jump Host Only (VPN-authenticated, time-limited)  │
+│                                                                              │
+│  DENIED TRAFFIC (Implicit Deny All Else)                                     │
+│  ─────────────────────────────────                                            │
+│  ✗ Legacy IoMT → Internet (ANY)                                              │
+│  ✗ Legacy IoMT → Corporate Network (ANY)                                     │
+│  ✗ Legacy IoMT → EMR Servers (Direct — must route via integration engine)   │
+│  ✗ Workstations → Legacy IoMT (SMB, RDP, WMI)                                │
+│  ✗ Legacy IoMT → Legacy IoMT Cross-VLAN (Device-to-device restricted)        │
+│  ✗ ANY → Legacy IoMT (SMBv1: TCP 445, 139 — EternalBlue prevention)          │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Vendor Management for Legacy Equipment
+
+| **Requirement** | **Contract Language** | **Verification** |
+|:----------------|:----------------------|:-----------------|
+| **Security Patch Commitment** | Vendor must provide security patches for critical vulnerabilities within 90 days of disclosure or provide documented compensating controls | Quarterly vendor security review |
+| **End-of-Life Notification** | 24-month advance notice of end-of-support with migration path documentation | Annual vendor roadmap review |
+| **Remote Access Security** | All remote access via hospital-approved VPN with MFA; no persistent connections; full audit logging | Remote session audit logs |
+| **Vulnerability Disclosure** | Vendor must notify hospital within 72 hours of becoming aware of vulnerabilities in deployed devices | Vendor communication audit |
+| **Compensating Control Support** | Vendor must document supported compensating controls if patches unavailable | Pre-procurement security assessment |
+
+#### Legacy Device Risk Acceptance Criteria
+
+When compensating controls cannot fully mitigate risk, formal risk acceptance requires:
+
+1. **Clinical Necessity Justification** — Documented clinical need for continued device operation
+2. **Compensating Control Documentation** — All implemented controls with residual risk assessment
+3. **Monitoring Commitment** — Enhanced monitoring and alerting for accepted-risk devices
+4. **Replacement Timeline** — Approved capital plan for device replacement (maximum 36-month horizon)
+5. **Executive Approval** — CISO and CMO joint signature for life-critical devices; CISO for others
+
+### 3.8 Network Segmentation for Ransomware Prevention — *Critical Focus Area*
+
+> **Objective:** Prevent ransomware from propagating from any compromised endpoint (e.g., a receptionist's PC infected via phishing) to clinical systems (surgical wing, ICU, OR). Segmentation is the primary defense-in-depth control after perimeter defenses fail.
+
+#### Network Zone Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────────────────┐
+│                           HOSPITAL NETWORK SEGMENTATION ARCHITECTURE                          │
+├─────────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                             │
+│                                    ┌──────────────┐                                         │
+│                                    │   INTERNET   │                                         │
+│                                    └──────┬───────┘                                         │
+│                                           │                                                 │
+│                                    ┌──────▼───────┐                                         │
+│                                    │   Perimeter  │                                         │
+│                                    │   Firewall   │                                         │
+│                                    └──────┬───────┘                                         │
+│                                           │                                                 │
+│         ┌─────────────────────────────────┼─────────────────────────────────┐               │
+│         │                                 │                                 │               │
+│  ┌──────▼───────┐                  ┌──────▼───────┐                  ┌──────▼───────┐       │
+│  │     DMZ      │                  │  INTERNAL    │                  │    GUEST     │       │
+│  │  (Zone 0)    │                  │   CORE FW    │                  │   WIFI       │       │
+│  └──────────────┘                  └──────┬───────┘                  │  (Zone 99)   │       │
+│  • Patient Portal                         │                          └──────────────┘       │
+│  • External APIs                          │                          • Internet only        │
+│  • VPN Concentrator                       │                          • No internal access   │
+│                                           │                                                 │
+│         ┌─────────────────────────────────┼─────────────────────────────────┐               │
+│         │                                 │                                 │               │
+│  ┌──────▼───────┐                  ┌──────▼───────┐                  ┌──────▼───────┐       │
+│  │ ZONE 1       │                  │ ZONE 2       │                  │ ZONE 3       │       │
+│  │ CORPORATE/   │                  │ CLINICAL     │                  │ CRITICAL     │       │
+│  │ ADMIN        │                  │ OPERATIONS   │                  │ CARE         │       │
+│  └──────────────┘                  └──────────────┘                  └──────────────┘       │
+│  • Reception PCs     ◄─────────────────────┐                         • Surgical Wing       │
+│  • HR/Finance        DENIED                │                         • ICU                 │
+│  • Guest Services                          │                         • OR Systems          │
+│  • General Admin     No direct path ───────┘                         • Ventilators         │
+│  • Email/Web                                                         • Life-Critical IoMT  │
+│                                                                                             │
+│  ┌──────────────┐                  ┌──────────────┐                  ┌──────────────┐       │
+│  │ ZONE 4       │                  │ ZONE 5       │                  │ ZONE 6       │       │
+│  │ DATA CENTER  │                  │ IoMT         │                  │ BMS          │       │
+│  │ SERVERS      │                  │ GENERAL      │                  │ AIR-GAPPED   │       │
+│  └──────────────┘                  └──────────────┘                  └──────────────┘       │
+│  • EMR Servers                     • MRI/CT                          • HVAC Controls       │
+│  • Database Servers                • Infusion Pumps                  • Life Safety         │
+│  • PACS/RIS                        • Patient Monitors                • Fire Suppression    │
+│  • Backup Servers                  • Lab Analyzers                   • Physical Access     │
+│                                                                                             │
+└─────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Inter-Zone Traffic Rules (Ransomware Prevention Focus)
+
+| **Source Zone** | **Destination Zone** | **Permitted Traffic** | **Denied Traffic** | **Rationale** |
+|:----------------|:---------------------|:----------------------|:-------------------|:--------------|
+| **Zone 1 (Corporate)** | Zone 2 (Clinical) | HTTPS to EMR Portal (443) via VDI only | SMB, RDP, WMI, SSH, All direct protocols | Receptionist infection cannot reach clinical systems |
+| **Zone 1 (Corporate)** | Zone 3 (Critical Care) | **NONE** | ALL | Zero trust between admin and life-critical |
+| **Zone 1 (Corporate)** | Zone 4 (Servers) | HTTPS to approved apps via LB | SMB, RDP, Database ports | Web-only access; no file share access |
+| **Zone 1 (Corporate)** | Zone 5 (IoMT) | **NONE** | ALL | No admin access to medical devices |
+| **Zone 1 (Corporate)** | Zone 6 (BMS) | **NONE** | ALL | Air-gapped by design |
+| **Zone 2 (Clinical)** | Zone 3 (Critical Care) | HL7/FHIR (2575, 443), Specific clinical protocols | SMB, RDP, General file transfer | Clinical data exchange only |
+| **Zone 2 (Clinical)** | Zone 4 (Servers) | EMR/LIS/RIS protocols, Database via app tier | Direct DB access from workstations | Application-layer access only |
+| **Zone 2 (Clinical)** | Zone 5 (IoMT) | Clinical monitoring (specific ports) | SMB, RDP, Management protocols | One-way data flow preferred |
+| **Zone 4 (Servers)** | Zone 5 (IoMT) | Integration engine traffic only | Direct server-to-device | Integration hub mediates all communication |
+| **Zone 5 (IoMT)** | Zone 5 (IoMT) | Limited peer communication (same device class) | Cross-class communication | Infusion pump A cannot talk to MRI B |
+| **Zone 6 (BMS)** | ANY | **NONE** outbound | ALL | True air-gap; out-of-band management only |
+| **ANY** | ANY | N/A | SMBv1 (TCP 445 v1), MS-RPC (TCP 135), NetBIOS (137-139) | EternalBlue/Ransomware propagation prevention |
+
+#### Micro-Segmentation Implementation
+
+| **Technology** | **Use Case** | **Implementation Notes** |
+|:---------------|:-------------|:-------------------------|
+| **Next-Gen Firewall (NGFW)** | Zone-level segmentation | L7 application awareness; IPS inline; SSL inspection (except medical device traffic) |
+| **Software-Defined Segmentation** | Micro-segmentation within zones | VMware NSX, Cisco ACI, Illumio; policy follows workload |
+| **802.1X NAC** | Endpoint zone assignment | Device profiling; auto-VLAN assignment; quarantine for non-compliant |
+| **Private VLANs** | IoMT device isolation | Prevents device-to-device communication within same VLAN |
+| **Zero Trust Network Access (ZTNA)** | Remote clinical access | Replace VPN with identity-aware, application-specific access |
+
+#### Lateral Movement Detection Controls
+
+| **Detection Method** | **Data Source** | **Alert Trigger** | **Response** |
+|:---------------------|:----------------|:------------------|:-------------|
+| **SMB Enumeration** | Network flow data | Scanning for port 445 across multiple hosts | Block source IP; isolate endpoint |
+| **Credential Harvesting** | EDR, Network traffic | LSASS access, Mimikatz patterns, Pass-the-Hash | Immediate endpoint isolation; credential reset |
+| **RDP Lateral Movement** | Authentication logs | RDP from workstation to workstation | Alert SOC; investigate source |
+| **PsExec/WMI Remote Execution** | Endpoint logs, Network | Remote service creation, WMI process spawn | Block and isolate; forensic capture |
+| **Unusual Cross-Zone Traffic** | Firewall logs | Zone 1 → Zone 3 attempt | Auto-block; high-priority alert |
+| **Ransomware Behavior** | EDR | Mass file encryption, VSS deletion, Ransom note creation | Auto-isolate; activate IR |
+
 ---
 
 ## Function 4: DETECT (DE)
@@ -279,7 +479,148 @@ Restore capabilities and services impaired by cybersecurity incidents to enable 
 | **RC.CO-03** | Recovery activities and progress in restoring capabilities are communicated to internal and external stakeholders | Status communication: Regular updates to executive leadership, clinical departments, Board; external communication to regulators, patients (if applicable), media | High | HIPAA §164.308(a)(7)(ii)(E); NIST SP 800-66 §4.14 |
 | **RC.CO-04** | Public updates on incident recovery are shared using approved methods and messaging | Public communication: Coordinated with legal/PR; HIPAA-compliant messaging; patient notification per breach notification requirements | Medium | HIPAA §164.404; NIST SP 800-66 §4.14 |
 
-### 6.3 Recovery Time and Recovery Point Objectives
+### 6.4 Clinical Continuity During System Recovery — *Critical Focus Area*
+
+> **AVAILABILITY IMPERATIVE:** Patient care cannot stop during cyber incidents. This section defines how physicians, nurses, and clinical staff maintain safe patient care using paper-based procedures while systems are restored. Clinical Continuity is the bridge between incident containment and full system recovery.
+
+#### 6.3.1 Paper-Based Downtime Procedures
+
+##### Pre-Positioned Downtime Supplies
+
+| **Location** | **Supplies Required** | **Quantity** | **Refresh Cycle** |
+|:-------------|:----------------------|:-------------|:------------------|
+| **Every Nursing Unit** | Downtime forms packet, Medication administration records (MAR), Patient assessment forms, Lab requisition forms, Radiology requisition forms, Physician order sheets | 72-hour supply per unit census | Monthly verification |
+| **Emergency Department** | Trauma sheets, Triage forms, ED order sets, Discharge instruction templates, Patient tracking whiteboard supplies | 72-hour supply for surge capacity | Weekly verification |
+| **Operating Rooms** | Pre-printed preference cards, Surgical count sheets, Anesthesia records, Post-op order sets, Consent forms | 72-hour supply | Daily verification |
+| **Pharmacy** | Medication reference books (paper), Drug interaction references, Insulin sliding scale references, Antibiotic dosing charts, Downtime dispensing logs | Permanent reference | Annual update |
+| **Radiology** | Paper requisitions, CD burning supplies (for offline image transfer), Portable reading station battery backup | 72-hour supply | Monthly verification |
+| **Laboratory** | Paper requisitions, Critical value reporting forms, Specimen labeling supplies, Pneumatic tube backup procedures | 72-hour supply | Monthly verification |
+
+##### Downtime Workflow Procedures
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────────────────┐
+│                              CLINICAL DOWNTIME WORKFLOW                                       │
+├─────────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                             │
+│  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐   │
+│  │   PHASE 1       │    │   PHASE 2       │    │   PHASE 3       │    │   PHASE 4       │   │
+│  │   ACTIVATION    │───►│   OPERATIONS    │───►│   TRANSITION    │───►│   RECOVERY      │   │
+│  │   (0-30 min)    │    │   (Ongoing)     │    │   (When Ready)  │    │   (Post-Restore)│   │
+│  └─────────────────┘    └─────────────────┘    └─────────────────┘    └─────────────────┘   │
+│                                                                                             │
+│  PHASE 1: ACTIVATION (First 30 Minutes)                                                    │
+│  ─────────────────────────────────────────                                                  │
+│  □ Incident Commander declares downtime via overhead announcement + pager blast            │
+│  □ Charge nurses retrieve downtime supply kits from unit stock                             │
+│  □ Print last available patient census from downtime workstations (if available)           │
+│  □ Retrieve last known medication lists from backup (paper or cached)                       │
+│  □ Notify all physicians on duty via downtime pager code                                   │
+│  □ Activate runner system for inter-department communication                               │
+│  □ Post downtime status on unit whiteboards                                                │
+│                                                                                             │
+│  PHASE 2: ONGOING OPERATIONS                                                                │
+│  ──────────────────────────────                                                             │
+│  MEDICATION ADMINISTRATION:                                                                 │
+│    • Verify patient identity: Wristband + verbal confirmation (name + DOB)                 │
+│    • Document on paper MAR: Time, medication, dose, route, nurse initials                  │
+│    • Two-nurse verification for high-alert medications (insulin, heparin, chemotherapy)    │
+│    • Call pharmacy for non-emergent questions; stat medications via runner                 │
+│    • Pain medication tracking on separate controlled substance log                         │
+│                                                                                             │
+│  PHYSICIAN ORDERS:                                                                          │
+│    • Write orders on pre-printed order sheets (legible handwriting required)               │
+│    • Verbal orders: Read-back required; document "V.O." with physician name               │
+│    • Stat labs/imaging: Call department directly; send paper requisition via runner        │
+│    • New admissions: Paper H&P; verify allergies verbally with patient/family              │
+│                                                                                             │
+│  LABORATORY:                                                                                │
+│    • Paper requisitions with patient label (from pre-printed stock)                        │
+│    • Critical values: Phone directly to ordering physician; document call-back             │
+│    • Maintain paper log of all resulted specimens for later EMR entry                      │
+│                                                                                             │
+│  RADIOLOGY:                                                                                 │
+│    • Paper requisitions; clinical indication required for all exams                        │
+│    • Verbal preliminary reads for stat exams; paper report follows                         │
+│    • Images stored locally; transferred via CD if PACS unavailable                         │
+│                                                                                             │
+│  PATIENT IDENTIFICATION (CRITICAL FOR SAFETY):                                              │
+│    • Two patient identifiers required for ALL care activities                              │
+│    • Wristband must match paper documents                                                  │
+│    • If wristband missing: Supervisor verification + new wristband application            │
+│    • Photo ID for outpatient/ED if available                                               │
+│                                                                                             │
+│  PHASE 3: TRANSITION (System Restoration Begins)                                            │
+│  ───────────────────────────────────────────                                                │
+│  □ Incident Commander announces: "Downtime ending; transition period begins"              │
+│  □ Continue paper documentation for in-progress activities                                 │
+│  □ Begin data entry of paper records into restored EMR (prioritize active orders)         │
+│  □ Nursing staff enter medications administered during downtime                            │
+│  □ Physicians co-sign verbal orders entered into system                                    │
+│  □ Lab and radiology staff reconcile paper results with electronic records                 │
+│                                                                                             │
+│  PHASE 4: POST-RECOVERY RECONCILIATION                                                      │
+│  ────────────────────────────────────────                                                   │
+│  □ All paper documentation scanned to patient record                                       │
+│  □ Medication reconciliation for every patient active during downtime                      │
+│  □ Order verification: All paper orders transcribed and verified                           │
+│  □ Quality review: Sample audit of downtime documentation accuracy                         │
+│  □ Incident report: Any near-misses or errors during downtime documented                  │
+│  □ Paper supplies restocked within 24 hours                                                │
+│                                                                                             │
+└─────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+##### Critical Clinical Scenarios During Downtime
+
+| **Scenario** | **Immediate Action** | **Documentation** | **Safety Check** |
+|:-------------|:---------------------|:------------------|:-----------------|
+| **Code Blue / Cardiac Arrest** | Proceed with ACLS protocol; use paper code sheet | Document all medications, times, interventions on paper code record | Two-person verification of all medications drawn |
+| **Stat Medication Order** | Pharmacy provides medication to runner; nurse administers | Paper MAR documentation; verbal read-back of order | Two-nurse verification for high-alert meds |
+| **Blood Transfusion** | Use paper transfusion record; manual crossmatch verification | Document unit number, start time, vital signs on paper | Two-RN verification of patient ID and blood unit |
+| **New Admission** | Paper admission packet; verbal allergy verification | Paper H&P, orders, nursing assessment | Allergy band placed; allergies on all paper documents |
+| **Surgical Case** | Proceed if already prepped; paper surgical record | Paper anesthesia record, count sheets, post-op orders | Time-out performed verbally with full team |
+| **Medication Refill Request** | Pharmacist verifies via paper records or patient's pill bottles | Document verification method and decision | Critical medications prioritized; non-urgent deferred |
+| **Abnormal Lab/Critical Value** | Lab calls physician directly; documents call-back | Paper critical value log with time and recipient | Read-back of values required; physician acknowledges |
+
+##### Post-Downtime Data Reconciliation
+
+| **Data Type** | **Entry Priority** | **Entry Deadline** | **Verification Method** | **Responsible Party** |
+|:--------------|:-------------------|:-------------------|:------------------------|:----------------------|
+| **Active Medication Orders** | Critical | 2 hours post-restore | Pharmacist review of entered orders | Nursing + Pharmacy |
+| **Administered Medications** | High | 4 hours post-restore | MAR reconciliation with paper records | Nursing |
+| **Physician Orders** | High | 4 hours post-restore | Physician co-signature | Physicians + Unit Clerk |
+| **Lab Results** | High | 4 hours post-restore | LIS reconciliation | Laboratory |
+| **Radiology Results** | High | 8 hours post-restore | PACS/RIS reconciliation | Radiology |
+| **Nursing Assessments** | Medium | 12 hours post-restore | Chart review | Nursing |
+| **Vital Signs** | Medium | 12 hours post-restore | Flowsheet entry | Nursing/Tech |
+| **Physician Notes** | Medium | 24 hours post-restore | Physician signature | Physicians |
+
+#### 6.3.2 Clinical Staff Roles During Downtime
+
+| **Role** | **Downtime Responsibilities** | **Communication Method** |
+|:---------|:------------------------------|:-------------------------|
+| **Charge Nurse** | Activate unit downtime procedures; distribute supplies; coordinate runners; maintain patient census whiteboard | Overhead paging, runners, personal cell (backup) |
+| **Staff Nurse** | Paper documentation; medication administration with paper MAR; patient identification verification | Direct communication; runner for stat needs |
+| **Physician** | Verbal/paper orders; handwritten notes if prolonged; phone consultation | Pager (if operational), direct call, runners |
+| **Pharmacist** | Paper order verification; medication dispensing with paper log; drug information resource | Phone, runners |
+| **Unit Clerk** | Manage paper requisitions; coordinate runners; maintain communication log | Phone, fax (backup), runners |
+| **Lab Technician** | Process specimens with paper requisitions; phone critical values | Phone, pneumatic tube (if operational) |
+| **Radiology Technologist** | Paper requisitions; portable exams; verbal prelim reads | Phone, runners |
+| **Respiratory Therapist** | Paper ventilator records; manual settings backup; patient rounding | Direct communication, pagers |
+| **Runner/Transport** | Physical delivery of requisitions, results, specimens, medications | Direct movement |
+
+#### 6.3.3 Downtime Duration-Based Escalation
+
+| **Duration** | **Status** | **Escalation Actions** | **Clinical Considerations** |
+|:-------------|:-----------|:-----------------------|:---------------------------|
+| **0-4 Hours** | Level 1: Standard Downtime | Standard paper procedures; no case deferrals | Continue normal operations with paper backup |
+| **4-12 Hours** | Level 2: Extended Downtime | Cancel elective procedures; defer non-urgent admissions; increase runner staffing | Prioritize emergency and urgent cases only |
+| **12-24 Hours** | Level 3: Prolonged Downtime | Activate Incident Command Center; consider patient diversion for new cases; staff augmentation | Medication supply assessment; pharmacy prioritization |
+| **24-72 Hours** | Level 4: Critical Downtime | Full ICS activation; mutual aid requests; potential partial patient transfer to unaffected facilities | Reassess all patient care plans; consider discharge of stable patients |
+| **>72 Hours** | Level 5: Disaster | Coordinate with regional healthcare coalition; HHS involvement; potential federal assistance | Assess continued operational capability; patient transfer planning |
+
+### 6.4 Recovery Time and Recovery Point Objectives
 
 | **System Category** | **Recovery Time Objective (RTO)** | **Recovery Point Objective (RPO)** | **Justification** |
 |:--------------------|:----------------------------------|:-----------------------------------|:------------------|
@@ -296,7 +637,102 @@ Restore capabilities and services impaired by cybersecurity incidents to enable 
 
 ---
 
-## Appendix A: HIPAA Security Rule Crosswalk
+## Appendix A: NIST IR 8374 Ransomware Controls \u2014 Hospital Adaptation
+
+> This appendix maps the recommendations from **NIST IR 8374 (Ransomware Risk Management: A Cybersecurity Framework Profile)** to hospital-specific implementations, with Availability prioritized above Confidentiality and Integrity.
+
+### IR 8374 IDENTIFY Function Adaptations
+
+| **IR 8374 Recommendation** | **Hospital Implementation** | **Availability Focus** |
+|:---------------------------|:----------------------------|:-----------------------|
+| **ID.AM: Identify all organizational assets** | IoMT device discovery including legacy Windows XP/7 systems; asset criticality tiered by patient safety impact (Life-Critical > Care-Critical > Operational) | Asset inventory enables rapid isolation of infected segments while preserving life-critical device availability |
+| **ID.BE: Understand business environment** | Map clinical workflows that depend on each system; document paper-based alternatives for every electronic workflow | Enables immediate fallback to paper procedures; maintains clinical operations during ransomware response |
+| **ID.RA: Risk assessment** | Include ransomware scenarios in tabletop exercises; model lateral movement paths from administrative to clinical zones | Identifies segmentation gaps before exploitation; prioritizes controls that preserve availability |
+
+### IR 8374 PROTECT Function Adaptations
+
+| **IR 8374 Recommendation** | **Hospital Implementation** | **Availability Focus** |
+|:---------------------------|:----------------------------|:-----------------------|
+| **PR.AC: Access management** | Privilege de-escalation for clinical workstations; prevent administrative account use on endpoints; disable SMBv1 hospital-wide | Limits ransomware's ability to spread; preserves segmented zones |
+| **PR.AT: Security training** | Clinical-specific phishing training; downtime procedure drills quarterly | Staff can maintain care operations without systems; reduces initial infection vectors |
+| **PR.DS: Data security (Backup focus)** | Immutable backups with air-gap or offline storage; 3-2-1-1 rule (3 copies, 2 media, 1 offsite, 1 immutable); backup integrity testing quarterly | Guarantees restoration capability; prevents backup encryption by ransomware |
+| **PR.IP: Configuration management** | Disable unnecessary services on all endpoints; application whitelisting on clinical workstations; legacy device virtual patching | Reduces attack surface; compensates for unpatchable IoMT |
+| **PR.PT: Network segmentation** | Six-zone architecture with internal firewalls; micro-segmentation for legacy IoMT; block SMB/RDP between zones | **Primary ransomware defense**; prevents lateral movement from reception to surgical wing |
+
+### IR 8374 DETECT Function Adaptations
+
+| **IR 8374 Recommendation** | **Hospital Implementation** | **Availability Focus** |
+|:---------------------------|:----------------------------|:-----------------------|
+| **DE.CM: Continuous monitoring** | EDR on all patchable endpoints; network behavior analysis for IoMT segments; SIEM correlation with ransomware detection rules | Early detection enables rapid isolation; minimizes blast radius and downtime |
+| **DE.AE: Anomaly detection** | Baseline medical device traffic patterns; alert on new connections from legacy IoMT; monitor for mass file encryption behavior | Detects ransomware before widespread encryption; protects clinical system availability |
+| **DE.DP: Detection processes** | 24/7 SOC coverage or MSSP; ransomware-specific playbooks; automated isolation capabilities | Reduces MTTD/MTTR; preserves availability through rapid response |
+
+### IR 8374 RESPOND Function Adaptations
+
+| **IR 8374 Recommendation** | **Hospital Implementation** | **Availability Focus** |
+|:---------------------------|:----------------------------|:-----------------------|
+| **RS.RP: Incident response planning** | Ransomware-specific playbook with clinical downtime integration; pre-authorized isolation decisions; escalation to CMO for clinical impact | Enables immediate containment while activating paper procedures; maintains patient care |
+| **RS.CO: Communications** | Pre-drafted ransomware notification templates; patient communication plan; regulatory notification workflow (HHS, state AG) | Reduces confusion during incident; enables clinical staff to focus on patient care |
+| **RS.MI: Mitigation** | Automated endpoint isolation capability; pre-defined network containment actions; legacy device manual disconnect procedures | Rapid containment limits spread; maintains availability of unaffected zones |
+
+### IR 8374 RECOVER Function Adaptations
+
+| **IR 8374 Recommendation** | **Hospital Implementation** | **Availability Focus** |
+|:---------------------------|:----------------------------|:-----------------------|
+| **RC.RP: Recovery planning** | Phased recovery: Life-Critical IoMT \u2192 EMR \u2192 Lab/Radiology \u2192 Pharmacy \u2192 Administrative; clean restoration from immutable backups | Prioritizes patient safety systems; enables clinical operations before full recovery |
+| **RC.IM: Improvements** | Post-incident review mandatory; segmentation gap analysis; legacy device compensating control reassessment | Prevents recurrence; improves resilience for future incidents |
+| **RC.CO: Communications** | Clinical staff updated on restoration progress; downtime-to-online transition announcements; patient notification per HIPAA | Manages transition from paper to electronic; maintains trust |
+
+### Ransomware-Specific Recovery Sequence
+
+```
+\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510
+\u2502                    RANSOMWARE RECOVERY PRIORITIZATION                          \u2502
+\u251c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2524
+\u2502                                                                                \u2502
+\u2502  PRIORITY 1: LIFE-CRITICAL (RTO: 15 minutes)                                   \u2502
+\u2502  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500                                     \u2502
+\u2502  \u2022 Ventilators, Infusion Pumps, Patient Monitors: Verify isolation, not       \u2502
+\u2502    infected; these devices rarely affected due to network segmentation        \u2502
+\u2502  \u2022 BMS Life Safety: Verify manual override operational                        \u2502
+\u2502  \u2022 If affected: Manual operation until replacement; do NOT attempt patching   \u2502
+\u2502                                                                                \u2502
+\u2502  PRIORITY 2: CARE-CRITICAL (RTO: 4 hours)                                      \u2502
+\u2502  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500                                        \u2502
+\u2502  \u2022 EMR: Restore from immutable backup; verify database integrity              \u2502
+\u2502  \u2022 Pharmacy System: Critical for medication safety; restore early             \u2502
+\u2502  \u2022 Downtime procedures remain active during this phase                        \u2502
+\u2502                                                                                \u2502
+\u2502  PRIORITY 3: DIAGNOSTIC (RTO: 8 hours)                                         \u2502
+\u2502  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500                                             \u2502
+\u2502  \u2022 Laboratory Information System: Enables electronic result reporting         \u2502
+\u2502  \u2022 PACS/RIS: Imaging access; paper workflow continues if delayed              \u2502
+\u2502                                                                                \u2502
+\u2502  PRIORITY 4: OPERATIONAL (RTO: 24 hours)                                       \u2502
+\u2502  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500                                          \u2502
+\u2502  \u2022 HIS (Scheduling, Billing): Administrative function; deferred              \u2502
+\u2502  \u2022 Email: Communication backup exists; deferred                               \u2502
+\u2502                                                                                \u2502
+\u2502  PRIORITY 5: ADMINISTRATIVE (RTO: 48+ hours)                                   \u2502
+\u2502  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500                                     \u2502
+\u2502  \u2022 Non-clinical systems restored last                                         \u2502
+\u2502  \u2022 Rebuild from clean images; full forensic review before reconnection        \u2502
+\u2502                                                                                \u2502
+\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518
+```
+
+### No-Pay Policy Considerations
+
+| **Consideration** | **Guidance** |
+|:------------------|:-------------|
+| **FBI/CISA Recommendation** | Do not pay ransom; payment funds criminal operations and does not guarantee recovery |
+| **Hospital Reality** | If patient lives are immediately at risk and backups failed, executive decision may differ |
+| **Preparation is Key** | Immutable backups, tested restoration, and clinical downtime procedures eliminate need to consider payment |
+| **If Payment Considered** | Engage legal counsel, law enforcement, and cyber insurance carrier before any decision; understand OFAC sanctions risk |
+
+---
+
+## Appendix B: HIPAA Security Rule Crosswalk
 
 | **HIPAA Standard** | **45 CFR Citation** | **Related CSF Subcategories** |
 |:-------------------|:--------------------|:------------------------------|
@@ -321,7 +757,7 @@ Restore capabilities and services impaired by cybersecurity incidents to enable 
 
 ---
 
-## Appendix B: Priority Summary Dashboard
+## Appendix C: Priority Summary Dashboard
 
 ### High Priority Items by Function
 
@@ -347,7 +783,7 @@ Restore capabilities and services impaired by cybersecurity incidents to enable 
 
 ---
 
-## Appendix C: Key Performance Indicators (KPIs)
+## Appendix D: Key Performance Indicators (KPIs)
 
 | **Metric Category** | **KPI** | **Target** | **Measurement Frequency** |
 |:--------------------|:--------|:-----------|:--------------------------|
@@ -365,6 +801,63 @@ Restore capabilities and services impaired by cybersecurity incidents to enable 
 | **Vendor Management** | Critical vendor security assessment completion | 100% annually | Annually |
 | **IoMT** | Medical device inventory accuracy | >98% | Quarterly |
 | **IoMT** | IoMT vulnerability assessment coverage | >90% | Quarterly |
+
+---
+
+## Appendix E: Ransomware Tabletop Exercise Scenarios
+
+> Conduct tabletop exercises quarterly to validate clinical downtime procedures and incident response capabilities. Each scenario should include clinical leadership (CMO, CNO), IT, Security, and department representatives.
+
+### Scenario 1: Reception-Originating Ransomware
+
+**Inject:** A receptionist in the main lobby clicked a phishing link disguised as a patient insurance verification portal. Ransomware has encrypted the reception workstation and is attempting lateral movement.
+
+| **Phase** | **Inject** | **Discussion Questions** |
+|:----------|:-----------|:-------------------------|
+| **Detection (T+0)** | EDR alerts on encryption behavior; SOC sees SMB enumeration from reception workstation | How quickly can we isolate the reception VLAN? What's our automated response capability? |
+| **Containment (T+15 min)** | Workstation isolated; scanning reveals 3 additional workstations in Zone 1 (Admin) encrypted | Did segmentation prevent spread to Zone 2 (Clinical)? Who authorizes broader network isolation? |
+| **Assessment (T+1 hr)** | Forensics confirms ransomware contained to Zone 1; Zone 2/3/4/5/6 unaffected | Do we activate clinical downtime procedures? How do we communicate to clinical staff? |
+| **Recovery (T+4 hrs)** | Zone 1 workstations being rebuilt from images; admin functions degraded but clinical operations normal | What's the priority for restoring reception functions? How do we handle scheduled patients? |
+| **Lessons Learned** | Post-exercise debrief | Did network segmentation work as designed? Were there any lateral movement attempts that succeeded? What gaps need remediation? |
+
+### Scenario 2: EMR Server Ransomware (Worst Case)
+
+**Inject:** Attackers exploited a vulnerability in an internet-facing patient portal to gain access. They spent 2 weeks conducting reconnaissance and have now encrypted all EMR application servers and the primary database.
+
+| **Phase** | **Inject** | **Discussion Questions** |
+|:----------|:-----------|:-------------------------|
+| **Detection (T+0)** | Multiple alerts: EMR application unresponsive; users reporting error messages; mass file encryption detected on server VLAN | How do we confirm this is ransomware vs. system failure? Who declares the incident? |
+| **Immediate Response (T+15 min)** | Confirmed ransomware; ransom note demands $5M in Bitcoin | Do we activate full clinical downtime procedures? Who notifies the CMO and CEO? |
+| **Clinical Impact (T+30 min)** | All EMR functions unavailable; ongoing surgeries need patient history; ED receiving trauma patient | How do surgeons access critical patient information? What's the downtime procedure for active traumas? |
+| **Backup Assessment (T+2 hrs)** | Immutable backup from 1 hour ago confirmed clean; attackers did NOT reach backup infrastructure | Can we restore to a clean environment? What's the RTO for EMR restoration? |
+| **Recovery Decision (T+4 hrs)** | Option A: Pay ransom (uncertain outcome). Option B: Restore from backup (4-8 hour RTO) | Who makes the final decision? What are the legal and ethical implications of each option? |
+| **Clinical Continuity (T+4-12 hrs)** | Paper-based procedures in effect; data entry backlog growing; staff fatigue increasing | How do we manage staff through extended downtime? When do we cancel elective procedures? |
+| **Restoration (T+12-24 hrs)** | EMR restored from backup; data reconciliation beginning | What's the process for entering 12-24 hours of paper documentation? How do we verify data integrity? |
+
+### Scenario 3: Legacy IoMT Compromise
+
+**Inject:** An older MRI machine running Windows XP was compromised. The attacker is using it as a pivot point to scan the IoMT VLAN.
+
+| **Phase** | **Inject** | **Discussion Questions** |
+|:----------|:-----------|:-------------------------|
+| **Detection (T+0)** | Network behavior analytics detects unusual outbound connections from MRI; scanning activity on IoMT VLAN | How did we detect this given the device can't have EDR? What's our visibility into IoMT traffic? |
+| **Containment (T+15 min)** | MRI isolated; scanning shows no other IoMT devices compromised | Can we safely take the MRI offline? What's the clinical impact of losing MRI capability? |
+| **Assessment (T+1 hr)** | Forensics reveals attacker entered via vendor remote access left enabled after maintenance | How do we manage vendor access? Should vendor remote access be persistent or on-demand? |
+| **Remediation (T+4 hrs)** | MRI reimaged by vendor; compensating controls strengthened | What compensating controls failed? Do we need to accelerate replacement of this legacy device? |
+| **Patient Impact** | 15 MRI exams delayed; 3 patients required transfer to partner facility for urgent imaging | What's our mutual aid agreement with partner facilities? How do we communicate delays to patients? |
+
+### Scenario 4: Extended Downtime (72+ Hours)
+
+**Inject:** Sophisticated ransomware attack has encrypted primary systems AND compromised backup infrastructure. Full restoration will take 72+ hours.
+
+| **Phase** | **Inject** | **Discussion Questions** |
+|:----------|:-----------|:-------------------------|
+| **Assessment (T+4 hrs)** | Backups encrypted; must rebuild from offline tape backup and bare-metal recovery | Do we have offline backups? When was the last test? |
+| **Day 1** | Full paper operations; staff working extended shifts; medication error near-miss reported | How do we manage staff fatigue? What additional safety checks are needed? |
+| **Day 2** | Elective surgeries cancelled; ED on divert for non-emergent patients; regional coalition activated | When do we divert patients? How do we coordinate with regional partners? |
+| **Day 3** | Partial EMR functionality restored for read-only access to historical data; new documentation still paper | What's the priority for write functionality? How do we manage the transition? |
+| **Day 4** | Full EMR restored; 72 hours of paper documentation to enter; regulatory reporting due | How do we prioritize data entry? What are our HHS/state notification obligations? |
+| **Post-Incident** | Total impact: $15M (response, lost revenue, regulatory fines, litigation reserve) | What investments would have prevented or reduced this impact? What's the business case for enhanced controls? |
 
 ---
 
